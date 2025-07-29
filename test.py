@@ -4,11 +4,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
-def send_email_with_image(
+def send_email_with_image_no_auth(
     smtp_host: str,
     smtp_port: int,
-    username: str,
-    password: str,
     sender: str,
     recipients: list[str],
     subject: str,
@@ -16,21 +14,16 @@ def send_email_with_image(
     image_path: str,
     cid_name: str = "inline_image"
 ):
-    # --- Build the Email ---
-    # Use a “related” multipart so we can embed images inline
+    # Build the email as “related” so images can be embedded
     msg = MIMEMultipart("related")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
 
-    # Alternative part for HTML (and fallback plain‑text if you want)
+    # Alternative part for plain‑text + HTML
     alt = MIMEMultipart("alternative")
     msg.attach(alt)
-
-    # Plain‑text fallback
-    alt.attach(MIMEText("This email contains an image. Please view in an HTML‑capable client.", "plain"))
-
-    # HTML part referencing our image by CID
+    alt.attach(MIMEText("This email contains an image. View in HTML‑capable client.", "plain"))
     html = f"""
     <html>
       <body>
@@ -41,32 +34,26 @@ def send_email_with_image(
     """
     alt.attach(MIMEText(html, "html"))
 
-    # Read the image file and attach it
-    with open(image_path, "rb") as img_file:
-        img_data = img_file.read()
-
-    img = MIMEImage(img_data, _subtype=os.path.splitext(image_path)[1][1:])
-    # Give it the Content‑ID we referenced in our HTML
+    # Attach the PNG
+    with open(image_path, "rb") as f:
+        img_data = f.read()
+    subtype = os.path.splitext(image_path)[1].lstrip(".") or "png"
+    img = MIMEImage(img_data, _subtype=subtype)
     img.add_header("Content-ID", f"<{cid_name}>")
-    # (optional) also set filename if you want it as an attachment
     img.add_header("Content-Disposition", "inline", filename=os.path.basename(image_path))
     msg.attach(img)
 
-    # --- Send it ---
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(username, password)
+    # Send without login
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
         server.send_message(msg)
+        print("Email sent (no auth).")
 
 if __name__ == "__main__":
-    send_email_with_image(
-        smtp_host="smtp.gmail.com",
-        smtp_port=465,
-        username="your.email@gmail.com",
-        password="your-app-password",
-        sender="your.email@gmail.com",
+    send_email_with_image_no_auth(
+        smtp_host="localhost",
+        smtp_port=25,
+        sender="me@mydomain.com",
         recipients=["friend@example.com"],
-        subject="Here's a cool picture!",
-        html_body="<h1>Check out this PNG</h1>",
-        image_path="path/to/your/image.png",
-        cid_name="my_png_cid"
-    )
+        subject="Here’s a PNG, no auth!",
+        html_body="<h1>Inline PNG test</h1>",
+        image
