@@ -1,59 +1,43 @@
 import smtplib
-import os
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 
-def send_email_with_image_no_auth(
+def send_html_email_no_auth(
     smtp_host: str,
     smtp_port: int,
     sender: str,
     recipients: list[str],
     subject: str,
-    html_body: str,
-    image_path: str,
-    cid_name: str = "inline_image"
+    html_body: str
 ):
-    # Build the email as “related” so images can be embedded
-    msg = MIMEMultipart("related")
+    # Create the container (multipart/alternative)
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
 
-    # Alternative part for plain‑text + HTML
-    alt = MIMEMultipart("alternative")
-    msg.attach(alt)
-    alt.attach(MIMEText("This email contains an image. View in HTML‑capable client.", "plain"))
-    html = f"""
-    <html>
-      <body>
-        {html_body}
-        <p><img src="cid:{cid_name}" alt="embedded image"></p>
-      </body>
-    </html>
-    """
-    alt.attach(MIMEText(html, "html"))
+    # Attach the HTML part
+    html_part = MIMEText(html_body, "html")
+    msg.attach(html_part)
 
-    # Attach the PNG
-    with open(image_path, "rb") as f:
-        img_data = f.read()
-    subtype = os.path.splitext(image_path)[1].lstrip(".") or "png"
-    img = MIMEImage(img_data, _subtype=subtype)
-    img.add_header("Content-ID", f"<{cid_name}>")
-    img.add_header("Content-Disposition", "inline", filename=os.path.basename(image_path))
-    msg.attach(img)
-
-    # Send without login
+    # Send via SMTP without logging in
     with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.send_message(msg)
+        server.sendmail(sender, recipients, msg.as_string())
         print("Email sent (no auth).")
 
 if __name__ == "__main__":
-    send_email_with_image_no_auth(
+    send_html_email_no_auth(
         smtp_host="localhost",
         smtp_port=25,
-        sender="me@mydomain.com",
+        sender="you@yourdomain.com",
         recipients=["friend@example.com"],
-        subject="Here’s a PNG, no auth!",
-        html_body="<h1>Inline PNG test</h1>",
-        image
+        subject="Hello from Python (HTML!)",
+        html_body="""
+        <html>
+          <body>
+            <h1 style="color: #2e6c80;">Hi there!</h1>
+            <p>This is an <strong>HTML</strong> email without auth.</p>
+          </body>
+        </html>
+        """
+    )
