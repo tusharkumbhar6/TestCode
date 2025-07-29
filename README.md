@@ -1,66 +1,105 @@
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email import message_from_string, policy
+from email.message import EmailMessage
+from email import policy
+from email.parser import BytesParser
 
-def send_html_email(
-    smtp_host: str,
-    smtp_port: int,
-    username: str,
-    password: str,
-    sender: str,
-    recipients: list[str],
-    subject: str,
-    html_body: str
-):
-    # Create message container — the correct MIME type is multipart/alternative.
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = ", ".join(recipients)
+# 1. Parse your raw email (bytes or str) into a Message object
+raw_email = """\
+From: alice@example.com
+To: bob@example.com
+Subject: Hi there!
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============123456789=="
 
-    # Record the MIME types of both parts — text/plain and text/html.
-    # You can also include a plain‑text version for older clients:
-    text_body = "This is the fallback plain‑text message."
-    part1 = MIMEText(text_body, "plain")
-    part2 = MIMEText(html_body, "html")
+--===============123456789==
+Content-Type: text/plain; charset="utf-8"
 
-    # Attach parts into message container.
-    # The email client will try the last part first.
-    msg.attach(part1)
-    msg.attach(part2)
+Hello Bob, this is the plain‑text part.
 
-    # Send the message via an SMTP server
-    # Use SMTP_SSL for implicit TLS, or SMTP + starttls() for explicit.
-    try:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-            server.login(username, password)
-            server.sendmail(sender, recipients, msg.as_string())
-        print("Email sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+--===============123456789==
+Content-Type: text/html; charset="utf-8"
 
-if __name__ == "__main__":
-    # Example usage:
-    SMTP_HOST = "smtp.gmail.com"
-    SMTP_PORT = 465
-    USERNAME = "your.email@gmail.com"
-    PASSWORD = "your-app-password"         # or OAuth2 token, etc.
-    SENDER = "your.email@gmail.com"
-    RECIPIENTS = ["friend1@example.com", "friend2@example.com"]
-    SUBJECT = "🎉 Hello from Python (HTML Email)"
-    HTML_BODY = """
-    <html>
-      <body>
-        <h1 style="color: #1a73e8;">Hi there!</h1>
-        <p>This is an <strong>HTML</strong> email sent from a Python script.</p>
-        <p><a href="https://www.python.org">Learn more about Python</a></p>
-      </body>
-    </html>
-    """
+<html><body><p>Hello Bob, <strong>this</strong> is HTML!</p></body></html>
 
-    send_html_email(
-        SMTP_HOST, SMTP_PORT,
-        USERNAME, PASSWORD,
-        SENDER, RECIPIENTS,
-        SUBJECT, HTML_BODY
-    )
+--===============123456789==
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="example.txt"
+Content-Transfer-Encoding: base64
+
+SGVsbG8sIHRoaXMgYSB0ZXN0IGZpbGUuCg==
+
+--===============123456789==--
+"""
+msg: EmailMessage = message_from_string(raw_email, policy=policy.default)
+
+# 2. Grab all headers
+print("Headers:")
+for name, value in msg.items():
+    print(f"  {name}: {value}")
+
+# 3. If it’s multipart, walk through each part
+print("\nBody & Attachments:")
+for part in msg.walk():
+    ctype = part.get_content_type()
+    cdisp = part.get_content_disposition()  # 'inline', 'attachment', or None
+
+    # skip container parts
+    if part.is_multipart():
+        continue
+
+    # attachments
+    if cdisp == 'attachment':
+        fname = part.get_filename()
+        payload = part.get_payload(decode=True)  # bytes
+        print(f"  Attachment — {fname} ({len(payload)} bytes)")
+
+    # inline text
+    elif ctype == 'text/plain':
+        text = part.get_content()
+        print("  Plain text body:")
+        print(text)
+
+    elif ctype == 'text/html':
+        html = part.get_content()
+        print("  HTML body:")
+        print(html)
+
+    else:
+        # any other content (images, non‑text, etc.)
+        data = part.get_payload(decode=True)
+        print(f"  Other part: {ctype}, {len(data)} bytes")
+
+# 4. If it isn’t multipart, it’s just a single payload:
+if not msg.is_multipart():
+    body = msg.get_content()
+    print("\nSingle-part body:")
+    print(body)
+
+def print_attachments(raw_email_bytes):
+    # Parse the raw email into an EmailMessage
+    msg = BytesParser(policy=policy.default).parsebytes(raw_email_bytes)
+
+    # Walk through the parts looking for attachments
+    for part in msg.iter_attachments():
+        filename = part.get_filename() or "<no name>"
+        payload = part.get_payload(decode=True)  # always returns bytes
+
+        print(f"\nAttachment: {filename}")
+        print("-" * (11 + len(filename)))
+
+        # Try to decode as UTF‑8 text if it’s a text/* subtype
+        maintype, subtype = part.get_content_type().split("/")
+        if maintype == "text":
+            try:
+                text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+                print(text)
+            except Exception as e:
+                print(f"[!] Could not decode text: {e}")
+        else:
+            # For non-text attachments, show a hex preview (first 100 bytes)
+            preview = payload[:100].hex()
+            print(f"[binary data, {len(payload)} bytes] preview (hex):")
+            print(preview + ("…" if len(payload) > 100 else ""))
+
+raw_bytes = raw_email.encode("utf-8")
+print_attachments(raw_bytes)
