@@ -1,82 +1,59 @@
+#!/usr/bin/env python3
+import sys
 import smtplib
-import os
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+from email import policy
+from email.parser import BytesParser
 
-def send_email_with_inline_image_and_text_attachment(
+def send_eml(
+    eml_path: str,
     smtp_host: str,
-    smtp_port: int,
-    sender: str,
-    recipients: list[str],
-    subject: str,
-    html_body: str,
-    image_path: str,
-    text_path: str
+    smtp_port: int = 25,
+    use_tls: bool = False
 ):
-    # 1) Root container: multipart/mixed
-    msg = MIMEMultipart("mixed")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = ", ".join(recipients)
+    """
+    Read a .eml file and send it via SMTP without logging in.
+    
+    :param eml_path: Path to the .eml file
+    :param smtp_host: SMTP server hostname or IP
+    :param smtp_port: SMTP port (default 25)
+    :param use_tls: If True, will do STARTTLS()
+    """
+    # 1) Parse the .eml file into an EmailMessage
+    with open(eml_path, "rb") as fp:
+        msg = BytesParser(policy=policy.SMTP).parse(fp)
 
-    # 2) Related container for HTML + inline image
-    related = MIMEMultipart("related")
-    msg.attach(related)
-
-    # 3) HTML part (must reference the CID you’ll set below)
-    #    e.g. <img src="cid:mylog.png">
-    html_part = MIMEText(html_body, "html")
-    related.attach(html_part)
-
-    # 4) Inline PNG as a base64‐encoded part with Content-ID
-    filename = os.path.basename(image_path)
-    with open(image_path, "rb") as img_fp:
-        img_data = img_fp.read()
-    img_part = MIMEBase("image", "png", name=filename)
-    img_part.set_payload(img_data)
-    encoders.encode_base64(img_part)
-    img_part.add_header("Content-Type",    f'image/png; name="{filename}"')
-    img_part.add_header("Content-Transfer-Encoding", "base64")
-    img_part.add_header("Content-ID",      f'<{filename}>')
-    img_part.add_header("Content-Disposition", f'inline; filename="{filename}"')
-    related.attach(img_part)
-
-    # 5) Text file attachment (still base64‐encoded)
-    txt_name = os.path.basename(text_path)
-    with open(text_path, "rb") as txt_fp:
-        txt_data = txt_fp.read()
-    txt_part = MIMEBase("text", "plain", name=txt_name)
-    txt_part.set_payload(txt_data)
-    encoders.encode_base64(txt_part)
-    txt_part.add_header("Content-Type",    f'text/plain; name="{txt_name}"')
-    txt_part.add_header("Content-Transfer-Encoding", "base64")
-    txt_part.add_header("Content-Disposition",  f'attachment; filename="{txt_name}"')
-    msg.attach(txt_part)
-
-    # 6) Send via SMTP (no auth)
+    # 2) Connect to SMTP
     with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.sendmail(sender, recipients, msg.as_string())
-        print("Email sent with inline image and text file attachment!")
+        server.set_debuglevel(1)      # shows SMTP session; set to 0 to silence
+        if use_tls:
+            server.starttls()
+
+        # 3) Send the message exactly as parsed
+        server.send_message(msg)
+
+    print(f"Sent `{eml_path}` via {smtp_host}:{smtp_port}")
 
 if __name__ == "__main__":
-    HTML = """
-<html>
-  <body>
-    <h1>Here’s our inline logo:</h1>
-    <p><img src="cid:mylog.png" alt="Logo"></p>
-    <p>And a text file is attached below.</p>
-  </body>
-</html>
-"""
-    send_email_with_inline_image_and_text_attachment(
-        smtp_host="localhost",
-        smtp_port=25,
-        sender="you@domain.com",
-        recipients=["friend@example.com"],
-        subject="Inline Logo + Text Attachment",
-        html_body=HTML,
-        image_path="mylog.png",
-        text_path="info.txt"
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Send an .eml file (with all its attachments) via SMTP without auth"
+    )
+    parser.add_argument("eml_file", help="Path to the .eml file to send")
+    parser.add_argument("smtp_host", help="SMTP server host")
+    parser.add_argument(
+        "--port", type=int, default=25, dest="smtp_port",
+        help="SMTP server port (default: 25)"
+    )
+    parser.add_argument(
+        "--tls", action="store_true", dest="use_tls",
+        help="Enable STARTTLS if needed"
+    )
+    args = parser.parse_args()
+
+    send_eml(
+        eml_path=args.eml_file,
+        smtp_host=args.smtp_host,
+        smtp_port=args.smtp_port,
+        use_tls=args.use_tls
     )
